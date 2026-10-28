@@ -1,0 +1,1304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>喜茶杯贴图片处理工具2.0</title>
+    <!-- 引入裁剪库（CDN） -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cropperjs@1.6.1/dist/cropper.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/cropperjs@1.6.1/dist/cropper.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            background-color: #f8f9fa;
+            padding: 40px 0;
+            /* 增加上下内边距，避免缩放后顶部/底部紧贴屏幕 */
+            min-width: 1200px;
+            /* 确保小屏幕不溢出（缩放后容器宽度约1050px） */
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 40px;
+            /* 增加左右内边距，预留缩放空间 */
+            display: flex;
+            gap: 20px;
+            /* 列间距（缩放后实际间距为30px） */
+            /* 关键：改为stretch让三列高度一致 */
+            align-items: stretch;
+            min-height: 600px;
+            /* 固定容器最小高度，确保三列始终有足够高度 */
+            /* 核心：整体放大1.5倍 */
+            transform: scale(1.5);
+            transform-origin: top center;
+            /* 缩放原点：顶部居中，避免页面偏移 */
+            /* 调整容器宽度，抵消缩放带来的溢出 */
+            width: fit-content;
+            /* 锁定最小宽度，防止切换品牌后右列内容变少导致容器缩水 */
+            min-width: 1060px;
+        }
+
+        /* 左侧栏：适配拉伸高度，由容器拉伸控制 */
+        .left-column {
+            width: 34%;
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 中列：取消分区，高度由容器拉伸控制 */
+        .middle-column {
+            width: 34%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 右列：适配拉伸高度，由容器拉伸控制 */
+        .print-preview-column {
+            width: 32%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        h1,
+        h4 {
+            font-size: 24px;
+            margin-bottom: 25px;
+            color: #333;
+            text-align: center;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
+        }
+
+        h4 {
+            font-size: 18px;
+            /* 调整h4的字体大小，保持视觉一致 */
+        }
+
+        /* 文件选择区域 */
+        .file-area {
+            margin-bottom: 30px;
+        }
+
+        /* 隐藏原选择按钮样式，不再使用 */
+        #fileInput {
+            display: none;
+        }
+
+        /* 拖放区域：点击光标，加号图标，垂直排列 */
+        .drop-area {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 40px 20px;
+            text-align: center;
+            color: #666;
+            margin-bottom: 10px;
+            transition: all 0.2s;
+            background: #fafafa;
+            min-height: 200px;
+            display: flex;
+            flex-direction: column;
+            /* 垂直排列加号和文字 */
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            /* 提示可点击 */
+            gap: 15px;
+            /* 加号和文字的间距 */
+        }
+
+        /* 加号图标伪元素 */
+        .drop-area::before {
+            content: "+";
+            font-size: 48px;
+            /* 加号大小 */
+            color: #ccc;
+            line-height: 1;
+            transition: color 0.2s;
+        }
+
+        .drop-area.active {
+            border-color: #4299e1;
+            background: #f0f8ff;
+        }
+
+        /* 激活时加号变色 */
+        .drop-area.active::before {
+            color: #4299e1;
+        }
+
+        .file-name {
+            font-size: 14px;
+            color: #666;
+            line-height: 1.5;
+        }
+
+        /* 裁剪弹窗：同步放大1.5倍，保持比例 */
+        .crop-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            z-index: 100;
+            overflow: auto;
+        }
+
+        .crop-modal.active {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            /* 增加弹窗内边距 */
+        }
+
+        .crop-header {
+            width: 80%;
+            max-width: 800px;
+            background: white;
+            padding: 18px 24px;
+            /* 放大弹窗头部内边距 */
+            border-radius: 8px 8px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .crop-header h3 {
+            font-size: 18px;
+            /* 放大标题字体 */
+        }
+
+        .crop-close {
+            cursor: pointer;
+            font-size: 26px;
+            /* 放大关闭按钮 */
+            color: #666;
+            width: 36px;
+            /* 放大关闭按钮尺寸 */
+            height: 36px;
+            line-height: 36px;
+            text-align: center;
+            border-radius: 50%;
+            transition: background 0.2s;
+        }
+
+        .crop-close:hover {
+            background: #f5f5f5;
+        }
+
+        /* 裁剪容器：增加左右内边距 + Flex布局居中 */
+        .crop-container {
+            width: 80%;
+            max-width: 800px;
+            height: 600px;
+            /* 放大弹窗高度（原500px×1.2） */
+            background: white;
+            padding: 20px 30px;
+            /* 放大内边距（原15px×1.3） */
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #cropImage {
+            max-width: 100%;
+            max-height: 100%;
+            display: block;
+            box-sizing: border-box;
+        }
+
+        .crop-footer {
+            width: 80%;
+            max-width: 800px;
+            background: white;
+            padding: 18px 24px;
+            /* 放大弹窗底部内边距 */
+            border-radius: 0 0 8px 8px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 18px;
+            /* 放大按钮间距 */
+        }
+
+        .crop-btn {
+            padding: 10px 24px;
+            /* 放大按钮尺寸 */
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            /* 放大按钮字体 */
+            transition: all 0.2s;
+        }
+
+        .crop-btn:hover {
+            border-color: #999;
+        }
+
+        .crop-btn.confirm {
+            background: #333;
+            color: white;
+            border-color: #333;
+        }
+
+        .crop-btn.confirm:hover {
+            background: #555;
+        }
+
+        /* 处理选项：关键修改——替换display:none为视觉隐藏，保留布局空间 */
+        .process-options {
+            border: 1px solid #eee;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 0;
+            background: white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            flex: 1;
+            /* 填充剩余高度 */
+            /* 替换display: none，保留布局空间 */
+            opacity: 0;
+            /* 视觉隐藏 */
+            pointer-events: none;
+            /* 禁止交互 */
+            visibility: hidden;
+            /* 增强隐藏（可选） */
+            transition: opacity 0.2s ease;
+            /* 平滑过渡 */
+        }
+
+        .process-options.active {
+            /* 激活时恢复视觉和交互 */
+            opacity: 1;
+            pointer-events: auto;
+            visibility: visible;
+        }
+
+        .option-title {
+            font-size: 18px;
+            margin-bottom: 25px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        .tone-btns {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 25px;
+            flex-wrap: wrap;
+        }
+
+        .tone-btn {
+            padding: 8px 16px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            cursor: pointer;
+            background: #f5f5f5;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .tone-btn:hover {
+            background: #eee;
+        }
+
+        .tone-btn.active {
+            background: #333;
+            color: white;
+            border-color: #333;
+        }
+
+        .threshold-wrap {
+            margin-bottom: 25px;
+            /* 同样处理阈值区域的隐藏，保留布局 */
+            opacity: 0;
+            pointer-events: none;
+            visibility: hidden;
+            transition: opacity 0.2s ease;
+        }
+
+        .threshold-wrap.active {
+            opacity: 1;
+            pointer-events: auto;
+            visibility: visible;
+        }
+
+        .threshold-label {
+            display: block;
+            margin-bottom: 10px;
+            font-size: 14px;
+            color: #666;
+            line-height: 1.5;
+        }
+
+        .threshold-slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #eee;
+            outline: none;
+        }
+
+        /* 关键修改：隐藏强制保存为PNG的复选框和文字 */
+        .force-png {
+            display: none;
+            /* 直接隐藏整个元素，不占布局空间 */
+        }
+
+        /* 预览区域：Flex垂直布局，解决按钮溢出问题 */
+        .preview-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            flex: 1;
+            /* 填充列的高度 */
+            display: flex;
+            /* Flex布局 */
+            flex-direction: column;
+            /* 垂直排列 */
+        }
+
+        .preview-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            /* flex: 1; */
+            /* 填充剩余高度 */
+            /* 关键修改1：从center改为flex-start，让内容靠上 */
+            justify-content: flex-start;
+            /* 关键修改2：添加顶部内边距，统一和贴纸的顶部偏移 */
+            padding-top: 0;
+            /* 可根据需要调整，比如10px，当前为0保持紧贴顶部 */
+            margin-bottom: 20px;
+            /* 预览区域和按钮之间的间距保留 */
+        }
+
+        /* 预览图容器：固定宽高，确保布局稳定 */
+        .preview-img-container {
+            width: 300px;
+            height: 416px;
+            border: 1px solid #eee;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #fafafa;
+            /* 确保容器顶部无额外间距 */
+            margin-top: 0;
+        }
+
+        .preview-img {
+            max-width: 100%;
+            max-height: 100%;
+            display: none;
+        }
+
+        .preview-img.active {
+            display: block;
+        }
+
+        .preview-placeholder {
+            font-size: 14px;
+            color: #999;
+        }
+
+        .preview-info {
+            font-size: 14px;
+            color: #666;
+            text-align: center;
+            line-height: 1.6;
+        }
+
+        /* 关键修改：删除超过200KB的警告样式（可选，因为逻辑已删除） */
+        .preview-info .warning {
+            display: none;
+        }
+
+        .chagee-hint {
+            font-size: 12px;
+            color: #e57373;
+            text-align: center;
+            line-height: 1.6;
+            margin-top: 6px;
+            max-width: 300px;
+        }
+
+        /* 操作按钮：关键修改——替换display:none为视觉隐藏，保留布局空间 */
+        .action-btns {
+            display: flex;
+            /* 始终显示布局 */
+            gap: 12px;
+            justify-content: center;
+            align-items: center;
+            /* 垂直居中按钮 */
+            flex-wrap: wrap;
+            flex-shrink: 0;
+            /* 确保按钮区域不被压缩 */
+            height: 40px;
+            /* 固定按钮区域高度，确保布局一致 */
+            /* 替换display: none，保留布局空间 */
+            opacity: 0;
+            /* 视觉隐藏 */
+            pointer-events: none;
+            /* 禁止交互 */
+            visibility: hidden;
+            /* 增强隐藏（可选） */
+            transition: opacity 0.2s ease;
+            /* 平滑过渡 */
+        }
+
+        .action-btns.active {
+            /* 激活时恢复视觉和交互 */
+            opacity: 1;
+            pointer-events: auto;
+            visibility: visible;
+        }
+
+        .action-btn {
+            padding: 10px 24px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            cursor: pointer;
+            background: #f5f5f5;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        /* 隐藏重新编辑按钮 */
+        #resetBtn {
+            display: none !important;
+        }
+
+        .action-btn:hover {
+            background: #eee;
+            border-color: #999;
+        }
+
+        .action-btn.download {
+            background: #48bb78;
+            color: white;
+            border-color: #48bb78;
+        }
+
+        .action-btn.download:hover {
+            background: #38a169;
+        }
+
+        /* 打印预览区域：Flex垂直布局，实现贴纸垂直居中 */
+        .print-preview-card {
+            background: white;
+            padding: 20px;
+            /* 关键修改：将原29px改为20px，和preview-card的padding统一 */
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            flex: 1;
+            /* 填充列的高度 */
+            display: flex;
+            /* Flex布局 */
+            flex-direction: column;
+            /* 垂直排列 */
+        }
+
+        /* 贴纸容器：flex:1填充高度，实现垂直居中 */
+        .sticker-wrap {
+            display: flex;
+            flex-direction: column;
+            /* 新增：确保贴纸垂直方向布局正确 */
+            align-items: center;
+            /* 水平居中 */
+            padding: 10px 0;
+            flex: 1;
+            /* 填充剩余高度 */
+            /* 关键修改1：从center改为flex-start，让内容靠上 */
+            justify-content: flex-start;
+            /* 关键修改2：添加顶部内边距，和preview-wrap的padding-top统一 */
+            padding-top: 0;
+            /* 可根据需要调整，当前为0保持紧贴顶部 */
+            margin-top: 0;
+            /* 确保无额外顶部间距 */
+        }
+
+        /* 贴纸：固定尺寸，确保布局稳定 */
+        .sticker {
+            width: 220px;
+            height: 390px;
+            /* 可根据需要调整，或保持原尺寸 */
+            background: white;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            /* 垂直排列子元素 */
+            align-items: center;
+            /* 水平居中 */
+            padding: 15px 10px;
+            border: 1px solid #eee;
+            margin-top: 0;
+            /* 确保无额外顶部间距 */
+            /* 移除justify-content: center; 改为让子元素按列分配空间 */
+        }
+
+        /* 新增：贴纸内容容器，占据num-box和logo之间的所有剩余空间 */
+        .sticker-content {
+            flex: 1;
+            /* 核心：占据剩余空间 */
+            width: 100%;
+            /* 宽度100% */
+            display: flex;
+            justify-content: center;
+            /* 水平居中内容 */
+            align-items: center;
+            /* 垂直居中内容 */
+        }
+
+        .print-preview-img {
+            width: 100%;
+            /* 填满父容器宽度 */
+            height: 100%;
+            /* 填满父容器高度 */
+            object-fit: contain;
+            /* 保持图片比例 */
+            display: none;
+            /* 默认隐藏 */
+        }
+
+        .print-preview-img.active {
+            display: block;
+            /* 激活时显示 */
+        }
+
+        .print-placeholder {
+            font-size: 14px;
+            color: #999;
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        .num-box {
+            display: flex;
+            justify-content: flex-start;
+            align-items: center;
+            /* background-color: #48bb78; */
+            width: 100%;
+            height: 30px;
+            /* 固定高度 */
+            flex-shrink: 0;
+            /* 防止被压缩 */
+        }
+
+        .num {
+            font-size: 26px;
+            margin-left: 8px;
+        }
+
+        .logo-box {
+            width: 100%;
+            height: 30px;
+            /* 固定logo高度，和num-box对应 */
+            flex-shrink: 0;
+            /* 防止被压缩 */
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+        }
+
+        .logo {
+            margin-bottom: -22px;
+            margin-right: -4px;
+        }
+
+        /* 响应式适配：小屏幕时取消缩放，恢复原布局 */
+        @media (max-width: 1400px) {
+            .container {
+                transform: none;
+                /* 取消缩放 */
+                width: 100%;
+                min-width: auto;
+                padding: 0 20px;
+            }
+
+            body {
+                min-width: auto;
+                padding: 20px 0;
+            }
+
+            .crop-container {
+                height: 500px;
+                padding: 15px 25px;
+            }
+
+            .crop-header,
+            .crop-footer {
+                padding: 15px 20px;
+            }
+
+            .crop-header h3 {
+                font-size: 16px;
+            }
+
+            .crop-close {
+                font-size: 22px;
+                width: 30px;
+                height: 30px;
+                line-height: 30px;
+            }
+
+            .crop-btn {
+                padding: 8px 20px;
+                font-size: 14px;
+            }
+        }
+
+        /* 品牌切换开关 */
+        .brand-switch-wrapper {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+        }
+
+        .brand-switch-wrapper .brand-label {
+            font-size: 13px;
+            color: #999;
+            user-select: none;
+            transition: color 0.3s;
+        }
+
+        .brand-switch-wrapper .brand-label.active {
+            color: #333;
+            font-weight: 600;
+        }
+
+        .brand-toggle {
+            position: relative;
+            width: 44px;
+            height: 24px;
+            cursor: pointer;
+        }
+
+        .brand-toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .brand-toggle .slider {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #333;
+            border-radius: 12px;
+            transition: background 0.3s;
+        }
+
+        .brand-toggle .slider::before {
+            content: "";
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            left: 3px;
+            bottom: 3px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s;
+        }
+
+        .brand-toggle input:checked + .slider {
+            background: red;
+        }
+
+        .brand-toggle input:checked + .slider::before {
+            transform: translateX(20px);
+        }
+
+        /* 霸王茶姬施工中样式 */
+        .construction-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            color: #bbb;
+            gap: 12px;
+        }
+
+        .construction-placeholder svg {
+            width: 60px;
+            height: 60px;
+            opacity: 0.5;
+        }
+
+        .construction-placeholder span {
+            font-size: 15px;
+            letter-spacing: 2px;
+        }
+
+        @media (max-width: 992px) {
+            .container {
+                flex-direction: column;
+                min-height: auto;
+            }
+
+            .left-column,
+            .middle-column,
+            .print-preview-column {
+                width: 100%;
+                min-height: auto;
+            }
+
+            .preview-card,
+            .print-preview-card {
+                min-height: auto;
+            }
+
+            .preview-img-container {
+                width: 100%;
+                height: auto;
+                min-height: 200px;
+            }
+
+            .sticker {
+                width: 280px;
+                height: 500px;
+            }
+
+            .crop-container {
+                height: 400px;
+                width: 90%;
+                padding: 15px 20px;
+            }
+
+            .crop-header,
+            .crop-footer {
+                width: 90%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- 品牌切换开关 -->
+    <div class="brand-switch-wrapper">
+        <span class="brand-label active" id="label_HEYTEA">喜茶</span>
+        <label class="brand-toggle">
+            <input type="checkbox" id="brandToggle">
+            <span class="slider"></span>
+        </label>
+        <span class="brand-label" id="label_CHAGEE">霸王茶姬</span>
+    </div>
+
+    <div class="container">
+        <!-- 左列：选择图片 + 处理选项 -->
+        <div class="left-column">
+            <h4>喜茶杯贴图片处理工具2.0</h4>
+            <div class="file-area">
+                <!-- 删除原选择图片按钮 -->
+                <input type="file" id="fileInput" accept="image/png,image/jpeg">
+                <!-- 拖放区域：点击+拖放功能 -->
+                <div class="drop-area" id="dropArea">点击选择图片<br>或拖入图片到此处</div>
+                <div class="file-name" id="fileName"></div>
+            </div>
+            <div class="process-options" id="processOptions">
+                <h3 class="option-title">处理选项</h3>
+                <div class="threshold-label">色彩模式</div>
+                <div class="tone-btns">
+                    <button class="tone-btn active" data-mode="binary">黑白</button>
+                    <button class="tone-btn" data-mode="grayscale">灰度</button>
+                    <button class="tone-btn" data-mode="original">原图</button>
+                </div>
+                <div class="threshold-wrap active" id="thresholdWrap">
+                    <label class="threshold-label" id="thresholdLabel">黑白阈值: 170</label>
+                    <input type="range" min="0" max="255" value="170" class="threshold-slider" id="thresholdSlider">
+                </div>
+                <!-- 该元素已通过CSS隐藏，可保留或删除 -->
+                <label class="force-png">
+                    <input type="checkbox" id="forcePng" checked>
+                    强制保存为PNG
+                </label>
+            </div>
+        </div>
+
+        <!-- 中列：预览 + 操作按钮 -->
+        <div class="middle-column">
+            <div class="preview-card" id="previewArea">
+                <h3 class="option-title">上传图片预览</h3>
+                <div class="preview-wrap">
+                    <div class="preview-img-container">
+                        <div class="preview-placeholder" id="previewPlaceholder">未上传图片</div>
+                        <img class="preview-img" id="previewImg" src="" alt="处理后的图片">
+                    </div>
+                    <div class="preview-info" id="previewInfo" style="display:none;"></div>
+                    <div class="chagee-hint" id="chageeHint" style="display:none;">该图片比例并非霸王茶姬福贴标准比例，裁剪为此比例意在解决霸王茶姬上传图片后被压缩高度的bug，上传前需手动拉伸为463×695 px</div>
+                </div>
+                <!-- 操作按钮 -->
+                <div class="action-btns" id="actionBtns">
+                    <button class="action-btn" id="reCropBtn">重新裁剪</button>
+                    <button class="action-btn" id="resetBtn">重新编辑</button>
+                    <button class="action-btn download" id="downloadBtn">保存图片</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右列：打印预览 -->
+        <div class="print-preview-column">
+            <div class="print-preview-card" id="printPreviewArea">
+                <h3 class="option-title">打印预览</h3>
+                <div class="sticker-wrap" id="HEYTEA_Sticker">
+                    <div class="sticker">
+                        <div class="num-box">
+                            <div class="num">8225</div>
+                        </div>
+                        <!-- 新增：包裹占位符和图片的容器 -->
+                        <div class="sticker-content">
+                            <div class="print-placeholder" id="printPlaceholder">未上传图片</div>
+                            <img class="print-preview-img" id="printPreviewImg" src="" alt="打印预览图片">
+                        </div>
+                        <div class="logo-box">
+                            <!-- 直接加载ICO图片 -->
+                            <img class="logo" src="https://static.heytea.com/web/logo/heytea.ico" width="30"
+                                height="30">
+                        </div>
+                    </div>
+                </div>
+                <!-- 霸王茶姬施工中占位 -->
+                <div class="construction-placeholder" id="CHAGEE_Construction" style="display:none;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M2 20h20"/>
+                        <path d="M5 20V7l7-4 7 4v13"/>
+                        <path d="M9 20v-5h6v5"/>
+                        <path d="M9 11h.01"/>
+                        <path d="M15 11h.01"/>
+                    </svg>
+                    <span>正在施工...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 裁剪弹窗 -->
+    <div class="crop-modal" id="cropModal">
+        <div class="crop-header">
+            <h3>裁剪图片</h3>
+            <span class="crop-close" id="cropClose">×</span>
+        </div>
+        <div class="crop-container">
+            <img id="cropImage" src="" alt="裁剪图片">
+        </div>
+        <div class="crop-footer">
+            <button class="crop-btn" id="cancelCrop">取消</button>
+            <button class="crop-btn confirm" id="confirmCrop">应用裁剪</button>
+        </div>
+    </div>
+
+    <script>
+        // 配置常量（保留MAX_UPLOAD_BYTES，若需精简可删除）
+        let CUP_WIDTH = 596;    // 裁剪目标宽度
+        let CUP_HEIGHT = 832;   // 裁剪目标高度
+        const MAX_UPLOAD_BYTES = 200 * 1024; // 200KB 阈值（已不再使用）
+
+        // DOM 元素（注释掉forcePng相关）
+        const fileInput = document.getElementById('fileInput');
+        const dropArea = document.getElementById('dropArea');
+        const fileName = document.getElementById('fileName');
+        const cropModal = document.getElementById('cropModal');
+        const cropImage = document.getElementById('cropImage');
+        const cropClose = document.getElementById('cropClose');
+        const cancelCrop = document.getElementById('cancelCrop');
+        const confirmCrop = document.getElementById('confirmCrop');
+        const processOptions = document.getElementById('processOptions');
+        const toneBtns = document.querySelectorAll('.tone-btn');
+        const thresholdWrap = document.getElementById('thresholdWrap');
+        const thresholdLabel = document.getElementById('thresholdLabel');
+        const thresholdSlider = document.getElementById('thresholdSlider');
+        // const forcePng = document.getElementById('forcePng'); // 不再需要
+        const previewImg = document.getElementById('previewImg');
+        const previewPlaceholder = document.getElementById('previewPlaceholder');
+        const previewInfo = document.getElementById('previewInfo');
+        const actionBtns = document.getElementById('actionBtns');
+        const reCropBtn = document.getElementById('reCropBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const printPreviewImg = document.getElementById('printPreviewImg');
+        const printPlaceholder = document.getElementById('printPlaceholder');
+
+        // 全局状态
+        let cropperInstance = null;
+        let originalImageSrc = '';
+        let croppedBaseCanvas = null;
+        let processedBlob = null;
+        let currentToneMode = 'binary';
+        let binaryThreshold = 170;
+
+        // ========== 工具函数 ==========
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function loadImage(src) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+                img.src = src;
+            });
+        }
+
+        function applyGrayscale(imageData) {
+            const data = imageData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+                data[i] = data[i + 1] = data[i + 2] = gray;
+            }
+        }
+
+        function applyBinaryThreshold(imageData, threshold) {
+            const limit = Math.max(0, Math.min(255, Math.round(threshold)));
+            const data = imageData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+                const value = gray >= limit ? 255 : 0;
+                data[i] = data[i + 1] = data[i + 2] = value;
+            }
+        }
+
+        function exportWithCompression(canvas, maxBytes, preferPng) {
+            return new Promise((resolve) => {
+                const attempts = preferPng
+                    ? [{ type: 'image/png' }]
+                    : [
+                        { type: 'image/png' },
+                        { type: 'image/jpeg', quality: 0.95 },
+                        { type: 'image/jpeg', quality: 0.9 },
+                        { type: 'image/jpeg', quality: 0.8 },
+                        { type: 'image/jpeg', quality: 0.7 },
+                        { type: 'image/jpeg', quality: 0.6 },
+                        { type: 'image/jpeg', quality: 0.5 },
+                    ];
+
+                const tryCompress = (index) => {
+                    if (index >= attempts.length) {
+                        canvas.toBlob(resolve, 'image/png');
+                        return;
+                    }
+                    const { type, quality } = attempts[index];
+                    canvas.toBlob((blob) => {
+                        if (blob.size <= maxBytes || index === attempts.length - 1) {
+                            resolve(blob);
+                        } else {
+                            tryCompress(index + 1);
+                        }
+                    }, type, quality);
+                };
+                tryCompress(0);
+            });
+        }
+
+        // ========== 核心逻辑 ==========
+        async function applyFilterAndCompress() {
+            if (!croppedBaseCanvas) return;
+
+            const outputCanvas = document.createElement('canvas');
+            outputCanvas.width = CUP_WIDTH;
+            outputCanvas.height = CUP_HEIGHT;
+            const ctx = outputCanvas.getContext('2d');
+
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, CUP_WIDTH, CUP_HEIGHT);
+            ctx.drawImage(croppedBaseCanvas, 0, 0);
+
+            if (currentToneMode !== 'original') {
+                const imageData = ctx.getImageData(0, 0, CUP_WIDTH, CUP_HEIGHT);
+                if (currentToneMode === 'binary') {
+                    applyBinaryThreshold(imageData, binaryThreshold);
+                } else if (currentToneMode === 'grayscale') {
+                    applyGrayscale(imageData);
+                }
+                ctx.putImageData(imageData, 0, 0);
+            }
+
+            // 强制使用PNG格式
+            processedBlob = await exportWithCompression(outputCanvas, MAX_UPLOAD_BYTES, true);
+            updatePreview();
+        }
+
+        async function handleFile(file) {
+            try {
+                fileName.textContent = `已选择: ${file.name}`;
+                originalImageSrc = await fileToBase64(file);
+                await loadImage(originalImageSrc);
+                openCropModal();
+            } catch (error) {
+                alert('图片加载失败：' + error.message);
+                console.error(error);
+            }
+        }
+
+        function openCropModal() {
+            // 重置裁剪实例
+            if (cropperInstance) {
+                cropperInstance.destroy();
+                cropperInstance = null;
+            }
+            // 设置裁剪图片源
+            cropImage.src = originalImageSrc;
+            // 显示弹窗
+            cropModal.classList.add('active');
+
+            // ========== 关键修改1：等待图片完全加载后再初始化Cropper，替代固定setTimeout ==========
+            cropImage.onload = function() {
+                // 初始化Cropper
+                cropperInstance = new Cropper(cropImage, {
+                    aspectRatio: CUP_WIDTH / CUP_HEIGHT, // 固定裁剪比例
+                    viewMode: 1, // 改为viewMode:1（允许裁剪框超出图片，图片不超出容器，更友好）
+                    autoCrop: true, // 自动裁剪
+                    autoCropArea: 1, // 裁剪区域默认占满整个图片（关键：无需手动拉大）
+                    mouseWheelZoom: true, // 开启鼠标滚轮缩放（明确配置）
+                    wheelZoomRatio: 0.05, // 滚轮缩放比例（调小，缩放更顺滑）
+                    scalable: true,
+                    zoomable: true,
+                    movable: true,
+                    cropBoxResizable: true,
+                    guides: true,
+                    center: true,
+                    checkCrossOrigin: true,
+                    restore: false,
+                    // ========== 关键修改2：添加ready事件，自动适配图片到裁剪框 ==========
+                    ready: function() {
+                        // 自动缩放图片，让图片刚好适配裁剪框（无需手动操作）
+                        const cropper = this;
+                        // 获取图片的自然尺寸和容器尺寸的比例，自动缩放到合适大小
+                        cropper.zoomTo(cropper.getData().zoom * 0.95); // 微调缩放比例，确保完整显示
+                    }
+                });
+            };
+        }
+
+        function closeCropModal() {
+            cropModal.classList.remove('active');
+            if (cropperInstance) {
+                cropperInstance.destroy();
+                cropperInstance = null;
+            }
+        }
+
+        async function applyCrop() {
+            try {
+                if (!cropperInstance) return;
+
+                croppedBaseCanvas = cropperInstance.getCroppedCanvas({
+                    width: CUP_WIDTH,
+                    height: CUP_HEIGHT
+                });
+
+                await applyFilterAndCompress();
+                processOptions.classList.add('active');
+                actionBtns.classList.add('active');
+                closeCropModal();
+            } catch (error) {
+                alert('图片裁剪失败：' + error.message);
+                console.error(error);
+            }
+        }
+
+        function updatePreview() {
+            if (!processedBlob) return;
+
+            if (previewImg.src) URL.revokeObjectURL(previewImg.src);
+            if (printPreviewImg.src) URL.revokeObjectURL(printPreviewImg.src);
+
+            const previewUrl = URL.createObjectURL(processedBlob);
+            previewImg.src = previewUrl;
+            previewImg.classList.add('active');
+            previewPlaceholder.style.display = 'none';
+
+            printPreviewImg.src = previewUrl;
+            printPreviewImg.classList.add('active');
+            printPlaceholder.style.display = 'none';
+
+            const sizeKB = processedBlob.size / 1024;
+            let infoText = `尺寸: ${CUP_WIDTH}×${CUP_HEIGHT} px | 大小: ${sizeKB.toFixed(1)}KB`;
+            previewInfo.innerHTML = infoText;
+            previewInfo.style.display = '';
+
+            // 霸王茶姬模式下显示比例提示
+            const chageeHint = document.getElementById('chageeHint');
+            chageeHint.style.display = brandToggle.checked ? '' : 'none';
+        }
+
+        function downloadImage() {
+            if (!processedBlob) return;
+
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(processedBlob);
+            // 关键修改：修改文件名格式，添加bwt和当前黑白阈值
+            link.download = `处理后的图片_bwt ${binaryThreshold}_${Date.now()}.png`;
+            link.click();
+            URL.revokeObjectURL(link.href);
+        }
+
+        function resetProcessing() {
+            if (previewImg.src) URL.revokeObjectURL(previewImg.src);
+            if (printPreviewImg.src) URL.revokeObjectURL(printPreviewImg.src);
+
+            processedBlob = null;
+            croppedBaseCanvas = null;
+            previewImg.classList.remove('active');
+            previewPlaceholder.style.display = 'block';
+            printPreviewImg.classList.remove('active');
+            printPlaceholder.style.display = 'block';
+            previewInfo.style.display = 'none';
+            previewInfo.innerHTML = '';
+            actionBtns.classList.remove('active');
+            processOptions.classList.remove('active');
+            fileName.textContent = '';
+            openCropModal();
+        }
+
+        // ========== 事件监听 ==========
+        dropArea.addEventListener('click', () => fileInput.click());
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                handleFile(file);
+                e.target.value = '';
+            }
+        });
+
+        dropArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropArea.classList.add('active');
+        });
+
+        dropArea.addEventListener('dragleave', () => dropArea.classList.remove('active'));
+
+        dropArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropArea.classList.remove('active');
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('image/')) {
+                handleFile(file);
+            } else {
+                alert('请拖放图片文件（PNG/JPG）');
+            }
+        });
+
+        cropClose.addEventListener('click', closeCropModal);
+        cancelCrop.addEventListener('click', closeCropModal);
+        confirmCrop.addEventListener('click', applyCrop);
+
+        toneBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                toneBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentToneMode = btn.dataset.mode;
+                thresholdWrap.classList.toggle('active', currentToneMode === 'binary');
+                applyFilterAndCompress();
+            });
+        });
+
+        thresholdSlider.addEventListener('input', (e) => {
+            binaryThreshold = Number(e.target.value);
+            thresholdLabel.textContent = `黑白阈值: ${binaryThreshold}`;
+            applyFilterAndCompress();
+        });
+
+        // 移除复选框事件监听
+        // forcePng.addEventListener('change', () => applyFilterAndCompress());
+        reCropBtn.addEventListener('click', openCropModal);
+        resetBtn.addEventListener('click', resetProcessing);
+        downloadBtn.addEventListener('click', downloadImage);
+
+        // ========== 品牌切换逻辑 ==========
+        const brandToggle = document.getElementById('brandToggle');
+        const label_HEYTEA = document.getElementById('label_HEYTEA');
+        const label_CHAGEE = document.getElementById('label_CHAGEE');
+        const toolTitle = document.querySelector('.left-column h4');
+        const HEYTEA_Sticker = document.getElementById('HEYTEA_Sticker');
+        const CHAGEE_Construction = document.getElementById('CHAGEE_Construction');
+
+        // 品牌配置
+        const BRAND_CONFIG = {
+            HEYTEA: { width: 596, height: 832, title: '喜茶杯贴图片处理工具2.0' },
+            CHAGEE: { width: 463, height: 638, title: '霸王茶姬杯贴处理工具' }
+        };
+
+        function switchBrand(isCHAGEE) {
+            const config = isCHAGEE ? BRAND_CONFIG.CHAGEE : BRAND_CONFIG.HEYTEA;
+
+            // 更新裁剪尺寸
+            CUP_WIDTH = config.width;
+            CUP_HEIGHT = config.height;
+
+            // 更新标题
+            toolTitle.textContent = config.title;
+            document.title = config.title;
+
+            // 更新标签高亮
+            label_HEYTEA.classList.toggle('active', !isCHAGEE);
+            label_CHAGEE.classList.toggle('active', isCHAGEE);
+
+            // 切换打印预览区域
+            HEYTEA_Sticker.style.display = isCHAGEE ? 'none' : '';
+            CHAGEE_Construction.style.display = isCHAGEE ? 'flex' : 'none';
+
+            // 重置当前处理状态
+            if (previewImg.src) URL.revokeObjectURL(previewImg.src);
+            if (printPreviewImg.src) URL.revokeObjectURL(printPreviewImg.src);
+            processedBlob = null;
+            croppedBaseCanvas = null;
+            originalImageSrc = '';
+            previewImg.classList.remove('active');
+            previewImg.src = '';
+            previewPlaceholder.style.display = 'block';
+            printPreviewImg.classList.remove('active');
+            printPreviewImg.src = '';
+            printPlaceholder.style.display = 'block';
+            previewInfo.style.display = 'none';
+            previewInfo.innerHTML = '';
+            document.getElementById('chageeHint').style.display = 'none';
+            actionBtns.classList.remove('active');
+            processOptions.classList.remove('active');
+            fileName.textContent = '';
+            fileInput.value = '';
+        }
+
+        brandToggle.addEventListener('change', () => {
+            switchBrand(brandToggle.checked);
+        });
+    </script>
+</body>
+</html>
